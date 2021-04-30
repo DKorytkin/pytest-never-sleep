@@ -1,2 +1,6 @@
 pytest==3.5.1
 setuptools_scm==5.0.2
+tox
+isort
+black
+lint

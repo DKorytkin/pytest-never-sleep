@@ -81,11 +81,18 @@ class NeverSleepPlugin(object):
         _true_sleep(seconds)
 
     def is_necessary_frame(self, frame):
-        return all([
-            self.root in frame[1],
-            self.TARGET_NAME in " ".join(frame[4]),
-            all([white_list_path not in frame[1] for white_list_path in self.whitelist]),
-        ])
+        return all(
+            [
+                self.root in frame[1],
+                self.TARGET_NAME in " ".join(frame[4]),
+                all(
+                    [
+                        white_list_path not in frame[1]
+                        for white_list_path in self.whitelist
+                    ]
+                ),
+            ]
+        )
 
     def find_time_sleep_usage(self):
         frame_info = self.get_current_frame()

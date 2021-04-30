@@ -18,12 +18,12 @@ def pytest_addoption(parser):
         "--disable-sleep",
         action="store_true",
         dest="disable_sleep",
-        help="Disable time.sleep by default."
+        help="Disable time.sleep by default.",
     )
     group.addoption(
         "--whitelist",
         action="append",
         default=[],
         dest="whitelist",
-        help="Allow time.sleep to these modules"
+        help="Allow time.sleep to these modules",
     )
