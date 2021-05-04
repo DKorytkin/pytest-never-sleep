@@ -5,7 +5,7 @@ from pytest_never_sleep import hooks
 def pytest_configure(config):
     if config.getoption("--disable-sleep"):
         reporter = NeverSleepPlugin(config)
-        config.pluginmanager.register(reporter)
+        config.pluginmanager.register(reporter, name="pytest_never_sleep")
 
 
 def pytest_addhooks(pluginmanager):
