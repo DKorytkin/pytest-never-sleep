@@ -3,21 +3,47 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build:
+  Linters:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: [2.7, 3.6, 3.7, 3.8]
-
     steps:
       - uses: actions/checkout@v2
+
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python }}
+          python-version: 3.7
 
-      - name: Install Tox
-        run: pip install tox
-      
-      - name: Run Tox
-        run: tox -e py
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install isort black pylint
+
+      - name: Black
+        run: black . --check --diff
+
+      - name: Pylint
+        run: pylint pytest_never_sleep
+
+      - name: Isort
+        run: isort . --check
+
+  Tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [ 2.7, 3.6, 3.7, 3.8 ]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements-dev.txt
+
+    - name: Testing
+      run: pytest -lvv --junitxml ./results.xml tests/
