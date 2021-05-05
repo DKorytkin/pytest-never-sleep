@@ -3,16 +3,34 @@ from pytest_never_sleep import hooks
 
 
 def pytest_configure(config):
-    if config.getoption("--disable-sleep"):
-        reporter = NeverSleepPlugin(config)
-        config.pluginmanager.register(reporter, name="pytest_never_sleep")
+    """
+    Register plugin only if `--disable-sleep` passed to pytest CLI
+
+    Parameters
+    ----------
+    config: _pytest.config.Config
+    """
+    reporter = NeverSleepPlugin(config)
+    config.pluginmanager.register(reporter, name="pytest_never_sleep")
 
 
 def pytest_addhooks(pluginmanager):
+    """
+    Parameters
+    ----------
+    pluginmanager:
+    """
     pluginmanager.add_hookspecs(hooks)
 
 
 def pytest_addoption(parser):
+    """
+    Command line options for our plugin
+
+    Parameters
+    ----------
+    parser: _pytest.config.Parser
+    """
     group = parser.getgroup("never_sleep")
     group.addoption(
         "--disable-sleep",
