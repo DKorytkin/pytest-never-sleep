@@ -1,6 +1,5 @@
 import pytest
 
-
 # These are specifications, so no implementation:
 # pylint: disable=unused-argument
 

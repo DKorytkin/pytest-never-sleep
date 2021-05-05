@@ -1,5 +1,5 @@
-from pytest_never_sleep.never_sleep import NeverSleepPlugin
 from pytest_never_sleep import hooks
+from pytest_never_sleep.never_sleep import NeverSleepPlugin
 
 
 def pytest_configure(config):
