@@ -29,7 +29,7 @@ setup(
         "pytest_never_sleep.never_sleep",
     ],
     packages=find_packages(exclude=["tests*"]),
-    install_requires=["pytest"],
+    install_requires=["pytest>=3.5.1"],
     entry_points={"pytest11": ["never_sleep = pytest_never_sleep.plugin"]},
     license="MIT license",
     python_requires=">=2.7",
