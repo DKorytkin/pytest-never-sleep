@@ -68,3 +68,23 @@ jobs:
 
       - name: Testing
         run: pytest -lvv --junitxml ./results.xml tests/
+
+  Tests-with-master-pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.7
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+          pip install -U git+https://github.com/pytest-dev/pytest.git
+
+      - name: Testing
+        run: pytest -lvv --junitxml ./results.xml tests/
