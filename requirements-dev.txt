@@ -1,6 +1,9 @@
 pytest==3.5.1
 setuptools_scm==5.0.2
 tox
-# isort
-# black
-# lint
+setuptools
+wheel
+twine
+isort
+black
+lint

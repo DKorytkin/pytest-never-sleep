@@ -11,11 +11,11 @@ with codecs.open("README.md", "r", "utf-8") as fh:
 
 setup(
     name="pytest-never-sleep",
-    use_scm_version={
-        "write_to": VERSION_FILE,
-        "local_scheme": "dirty-tag",
-    },
-    setup_requires=["setuptools_scm==5.0.2"],
+    # use_scm_version={
+    #     "write_to": VERSION_FILE,
+    #     "local_scheme": "dirty-tag",
+    # },
+    # setup_requires=["setuptools_scm==5.0.2"],
     author="Denis Korytkin",
     author_email="DKorytkin@gmail.com",
     description="pytest plugin helps to avoid adding tests without mock `time.sleep`",
