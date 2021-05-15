@@ -1,7 +1,7 @@
 import contextlib
 import inspect
-import time
 import sys
+import time
 
 import pytest
 
@@ -12,12 +12,12 @@ TARGET_MODULE_NAME = "time"
 TARGET_METHOD_NAME = "sleep"
 LIMIT_STACK_INSPECTION = 5
 DEFAULT_IGNORE_LIST = [
-    'py',
-    'pytest',
-    '_pytest',
-    'nose.plugins',
-    'threading',
-    'Queue',
+    "py",
+    "pytest",
+    "_pytest",
+    "nose.plugins",
+    "threading",
+    "Queue",
 ]
 
 
@@ -25,6 +25,7 @@ class TimeSleepUsageError(RuntimeError):
     """
     The error which raises when `time.sleep` unexpectedly uses
     """
+
     pass
 
 
@@ -40,7 +41,7 @@ def get_target_attributes(module):
 
 
 class Cache(object):
-    def __init__(self, ):
+    def __init__(self):
         self.data = {}
 
     @staticmethod
@@ -49,7 +50,7 @@ class Cache(object):
             attributes = dir(module)
         except (ImportError, TypeError):
             attributes = []
-        return '{}-{}'.format(id(module), hash(frozenset(attributes)))
+        return "{}-{}".format(id(module), hash(frozenset(attributes)))
 
     def _setup_module_cache(self, module):
         date_attrs = []
@@ -248,10 +249,7 @@ class NeverSleepPlugin(object):
                     continue
                 real = _true_time_sleep
                 if attribute_name == TARGET_MODULE_NAME:
-                    try:
-                        setattr(attribute_value, TARGET_METHOD_NAME, real)
-                    except (AttributeError, TypeError):
-                        import pdb;pdb.set_trace()
+                    setattr(attribute_value, TARGET_METHOD_NAME, real)
                     real = attribute_value
                 setattr(module, attribute_name, real)
 
@@ -300,7 +298,7 @@ class NeverSleepPlugin(object):
         """
         frame = inspect.currentframe().f_back.f_back
         for _ in range(LIMIT_STACK_INSPECTION):
-            if frame.f_globals.get('__name__') == __name__:
+            if frame.f_globals.get("__name__") == __name__:
                 frame = frame.f_back
                 continue
             return frame
