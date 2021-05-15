@@ -12,6 +12,8 @@ def pytest_configure(config):
     """
     reporter = NeverSleepPlugin(config)
     config.pluginmanager.register(reporter, name="pytest_never_sleep")
+    for marker, message in NeverSleepPlugin.MARKERS.items():
+        config.addinivalue_line("markers", "{}:{}".format(marker, message))
 
 
 def pytest_addhooks(pluginmanager):
@@ -43,5 +45,5 @@ def pytest_addoption(parser):
         action="append",
         default=[],
         dest="whitelist",
-        help="Allow time.sleep to these modules",
+        help="Allow time.sleep to these modules.",
     )

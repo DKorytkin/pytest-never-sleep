@@ -16,7 +16,7 @@ def pytest_never_sleep_whitelist():
 
     Usage in conftest:
     >>> def pytest_never_sleep_whitelist():
-    >>>     return "root_dir/folder/one/", "root_dir/folder/two/file.py"
+    >>>     return "root_dir.folder.module", "root_dir.folder_two."
     """
 
 

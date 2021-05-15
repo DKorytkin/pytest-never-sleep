@@ -1,3 +1,4 @@
+import contextlib
 import inspect
 import time
 import sys
@@ -6,12 +7,14 @@ import pytest
 
 _true_time = time
 _true_time_sleep = time.sleep
-TARGET_MODULE = "time"
-TARGET_METHOD = "sleep"
+_real_time_sleep_ids = (id(_true_time_sleep), id(_true_time))
+TARGET_MODULE_NAME = "time"
+TARGET_METHOD_NAME = "sleep"
 LIMIT_STACK_INSPECTION = 5
 DEFAULT_IGNORE_LIST = [
-    'pytest.',
-    '_pytest.',
+    'py',
+    'pytest',
+    '_pytest',
     'nose.plugins',
     'threading',
     'Queue',
@@ -25,9 +28,19 @@ class TimeSleepUsageError(RuntimeError):
     pass
 
 
+def get_target_attributes(module):
+    for attribute_name in dir(module):
+        if attribute_name not in (TARGET_MODULE_NAME, TARGET_METHOD_NAME):
+            continue
+        try:
+            attribute_value = getattr(module, attribute_name)
+        except (ImportError, AttributeError, TypeError):
+            continue
+        yield attribute_name, attribute_value
+
+
 class Cache(object):
     def __init__(self, ):
-        self._real_time_sleep_ids = (id(_true_time_sleep), id(_true_time))
         self.data = {}
 
     @staticmethod
@@ -38,27 +51,10 @@ class Cache(object):
             attributes = []
         return '{}-{}'.format(id(module), hash(frozenset(attributes)))
 
-    @staticmethod
-    def _get_module_attributes(module):
-        result = []
-        try:
-            module_attributes = dir(module)
-            for attribute_name in module_attributes:
-                attribute_value = getattr(module, attribute_name)
-                result.append((attribute_name, attribute_value))
-        except (ImportError, AttributeError, TypeError):
-            # For certain libraries
-            # this can result in ImportError(_winreg) or AttributeError(celery)
-            pass
-        return result
-
     def _setup_module_cache(self, module):
         date_attrs = []
-        all_module_attributes = self._get_module_attributes(module)
-        for attribute_name, attribute_value in all_module_attributes:
-            if attribute_name not in (TARGET_MODULE, TARGET_METHOD):
-                continue
-            if id(attribute_value) in self._real_time_sleep_ids:
+        for attribute_name, attribute_value in get_target_attributes(module):
+            if id(attribute_value) in _real_time_sleep_ids:
                 date_attrs.append((attribute_name, attribute_value))
         return self._get_module_attributes_hash(module), date_attrs
 
@@ -88,7 +84,7 @@ class Cache(object):
 
         Returns
         -------
-        Optional[List[Tuple[str, Callable]]]
+        Target attributes of module: Optional[List[Tuple[str, Callable]]]
             [
                 ("sleep", <built-in function sleep>),
                 ("time", <module 'time' from 'time.so'>),
@@ -112,14 +108,20 @@ class NeverSleepPlugin(object):
     The fixture `enable_time_sleep` adds ability to allow `time.sleep` in particular tests
     """
 
-    TARGET_NAME = "{}.{}".format(TARGET_MODULE, TARGET_METHOD)
+    TARGET_NAME = "{}.{}".format(TARGET_MODULE_NAME, TARGET_METHOD_NAME)
+    MARK_ALLOW_TIME_SLEEP = "allow_time_sleep"
+    MARK_NOT_ALLOW_TIME_SLEEP = "not_allow_time_sleep"
+    MARKERS = {
+        MARK_ALLOW_TIME_SLEEP: "Allow using `time.sleep` in test",
+        MARK_NOT_ALLOW_TIME_SLEEP: "Not allow using `time.sleep` in test",
+    }
 
     def __init__(self, config):
         self.config = config
         self.root = str(config.rootdir)
-        self.changes = []
         self.cache = Cache()
         self.whitelist = tuple(self.get_whitelist() or DEFAULT_IGNORE_LIST)
+        self._allow_time_sleep = False
 
     @pytest.fixture
     def disable_time_sleep(self):
@@ -127,17 +129,23 @@ class NeverSleepPlugin(object):
         This fixture disabled using `time.sleep` for particular tests
         """
         self._disable_time_sleep()
-        yield
-        self._enable_time_sleep()
 
     @pytest.fixture
     def enable_time_sleep(self):
         """
         This fixture enable using `time.sleep` for particular tests
         """
-        self._enable_time_sleep()
-        yield
-        self._disable_time_sleep()
+        with self.allow_time_sleep():
+            yield
+
+    @pytest.fixture(autouse=True)
+    def never_sleep(self, request):
+        if self.get_marker(request, "allow_time_sleep"):
+            return request.getfixturevalue("enable_time_sleep")
+        elif self.get_marker(request, "not_allow_time_sleep"):
+            return request.getfixturevalue("disable_time_sleep")
+        elif self.config.getoption("--disable-sleep"):
+            return request.getfixturevalue("disable_time_sleep")
 
     def pytest_sessionstart(self):
         """
@@ -180,21 +188,34 @@ class NeverSleepPlugin(object):
         )
         return msg
 
-    def should_use_real_time_sleep(self):
-        if not self.whitelist:
-            return False
+    @staticmethod
+    def get_marker(request, name):
+        """
+        Needs to keep compatible between different pytest versions
 
-        frame = inspect.currentframe().f_back.f_back
-        for _ in range(LIMIT_STACK_INSPECTION):
-            module_name = frame.f_globals.get('__name__')
-            if module_name and module_name.startswith(self.whitelist):
-                return module_name
+        Parameters
+        ----------
+        request: _pytest.fixtures.SubRequest
+        name: str
 
-            frame = frame.f_back
-            if frame is None:
-                break
+        Returns
+        -------
+        Optional[_pytest.mark.structures.MarkInfo | _pytest.mark.structures.Mark]
+        """
+        try:
+            marker = request.node.get_marker(name)
+        except AttributeError:
+            marker = request.node.get_closest_marker(name)
+        return marker
 
-        return False
+    @contextlib.contextmanager
+    def allow_time_sleep(self):
+        old_value = self._allow_time_sleep
+        self._allow_time_sleep = True
+        try:
+            yield
+        finally:
+            self._allow_time_sleep = old_value
 
     def fake_sleep(self, seconds):
         """
@@ -205,30 +226,34 @@ class NeverSleepPlugin(object):
         ----------
         seconds: int | float
         """
-        if not self.should_use_real_time_sleep():
+        if not self._allow_time_sleep:
             frame = self.get_current_frame()
             msg = self.config.hook.pytest_never_sleep_message_format(frame=frame)
             raise TimeSleepUsageError(msg)
-
         _true_time_sleep(seconds)
 
     def _sys_modules(self):
-        for mod_name, module in sys.modules.items():
+        ignore = (TARGET_MODULE_NAME, "datetime", "_datetime")
+        for mod_name, module in dict(sys.modules).items():
             if mod_name is None or module is None or mod_name == __name__:
                 continue
-            elif mod_name.startswith(self.whitelist) or mod_name.endswith('.six.moves'):
-                continue
-            elif mod_name == TARGET_MODULE:
+            elif mod_name.startswith(ignore) or mod_name.startswith(self.whitelist):
                 continue
             yield module
 
     def _enable_time_sleep(self):
-        for (module, attribute_name, attribute_value) in self.changes:
-            real = _true_time_sleep
-            if attribute_name == TARGET_MODULE:
-                setattr(attribute_value, TARGET_METHOD, real)
-                real = attribute_value
-            setattr(module, attribute_name, real)
+        for module in self._sys_modules():
+            for attribute_name, attribute_value in get_target_attributes(module):
+                if id(attribute_value) in _real_time_sleep_ids:
+                    continue
+                real = _true_time_sleep
+                if attribute_name == TARGET_MODULE_NAME:
+                    try:
+                        setattr(attribute_value, TARGET_METHOD_NAME, real)
+                    except (AttributeError, TypeError):
+                        import pdb;pdb.set_trace()
+                    real = attribute_value
+                setattr(module, attribute_name, real)
 
     def _disable_time_sleep(self):
         for module in self._sys_modules():
@@ -238,11 +263,10 @@ class NeverSleepPlugin(object):
             module_time_sleep_attrs = self.cache.add(module)
             for attribute_name, attribute_value in module_time_sleep_attrs:
                 fake = self.fake_sleep
-                if attribute_name == TARGET_MODULE:
-                    setattr(attribute_value, TARGET_METHOD, fake)
+                if attribute_name == TARGET_MODULE_NAME:
+                    setattr(attribute_value, TARGET_METHOD_NAME, fake)
                     fake = attribute_value
                 setattr(module, attribute_name, fake)
-                self.changes.append((module, attribute_name, attribute_value))
 
     def get_whitelist(self):
         """
@@ -252,7 +276,7 @@ class NeverSleepPlugin(object):
         -------
         List[str]
         """
-        values = [__name__]
+        values = []
         other = self.config.hook.pytest_never_sleep_whitelist()
         if other:
             values.extend(other)
