@@ -25,18 +25,27 @@ def pytest_never_sleep_message_format(frame):
     """
     In this hook you can overwrite default message format on your own
 
+    Allowed methods:
+        f_back - next outer frame object
+        f_builtins - builtins namespace seen by this frame
+        f_code - code object being executed in this frame
+        f_globals - global namespace seen by this frame
+        f_lasti - index of last attempted instruction in bytecode
+        f_lineno - current line number in Python source code
+        f_locals - local namespace seen by this frame
+        f_trace - tracing function for this frame, or None
+
+    https://docs.python.org/3/library/inspect.html
+
     Parameters
     ----------
-    frame: tuple
-        (
-            <frame object>,
-            "path_to_module.py",
-            line_number,
-            function_name,
-            ["stack", "of", "calls"]
-        )
+    frame: frame
 
     Returns
     -------
     str
+
+    Usage in conftest:
+    >>> def pytest_never_sleep_message_format(frame):
+    >>>     return "{}:{}".format(frame.f_code.co_filename, frame.f_code.co_firstlineno)
     """

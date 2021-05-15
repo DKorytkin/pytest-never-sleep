@@ -26,10 +26,18 @@ class TimeSleepUsageError(RuntimeError):
     The error which raises when `time.sleep` unexpectedly uses
     """
 
-    pass
-
 
 def get_target_attributes(module):
+    """
+    Parameters
+    ----------
+    module
+
+    Returns
+    -------
+    Generator
+        ("attribute_name", <object function or module>)
+    """
     for attribute_name in dir(module):
         if attribute_name not in (TARGET_MODULE_NAME, TARGET_METHOD_NAME):
             continue
@@ -41,6 +49,23 @@ def get_target_attributes(module):
 
 
 class Cache(object):
+    """
+    Cache needs to avoid processing all modules in every call of fixture
+
+    Example of data:
+        {
+            'test_imports': ('4514533200--7022640807274930827', []),
+            'tests': ('4514140240--8879947260191160972', []),
+            'tests.acceptance': ('4514742544--2037579862527527209', []),
+            'tests.acceptance.diff_imports': ('4514742448--5005491873314787699', []),
+            'tests.acceptance.diff_imports.import_from_module': (
+                '4514742352--4263818908760398017',
+                [
+                    ('time', <module 'time' (built-in)>)
+                ]
+            ),
+        }
+    """
     def __init__(self):
         self.data = {}
 
@@ -94,6 +119,7 @@ class Cache(object):
         module_hash, module_attrs = self.data.get(module.__name__) or ("", [])
         if self._get_module_attributes_hash(module) == module_hash:
             return module_attrs
+        return None
 
 
 class NeverSleepPlugin(object):
@@ -141,12 +167,17 @@ class NeverSleepPlugin(object):
 
     @pytest.fixture(autouse=True)
     def never_sleep(self, request):
+        """
+        Parameters
+        ----------
+        request: _pytest.fixtures.SubRequest
+        """
         if self.get_marker(request, "allow_time_sleep"):
-            return request.getfixturevalue("enable_time_sleep")
+            request.getfixturevalue("enable_time_sleep")
         elif self.get_marker(request, "not_allow_time_sleep"):
-            return request.getfixturevalue("disable_time_sleep")
+            request.getfixturevalue("disable_time_sleep")
         elif self.config.getoption("--disable-sleep"):
-            return request.getfixturevalue("disable_time_sleep")
+            request.getfixturevalue("disable_time_sleep")
 
     def pytest_sessionstart(self):
         """
@@ -211,6 +242,9 @@ class NeverSleepPlugin(object):
 
     @contextlib.contextmanager
     def allow_time_sleep(self):
+        """
+        Needs for temporary allow `time.sleep` using
+        """
         old_value = self._allow_time_sleep
         self._allow_time_sleep = True
         try:
@@ -238,7 +272,7 @@ class NeverSleepPlugin(object):
         for mod_name, module in dict(sys.modules).items():
             if mod_name is None or module is None or mod_name == __name__:
                 continue
-            elif mod_name.startswith(ignore) or mod_name.startswith(self.whitelist):
+            if mod_name.startswith(ignore) or mod_name.startswith(self.whitelist):
                 continue
             yield module
 
@@ -284,17 +318,9 @@ class NeverSleepPlugin(object):
     @staticmethod
     def get_current_frame():
         """
-        Returns:
-        List[tuple]
-            [
-                (
-                    <frame object>,
-                    "path_to_module.py",
-                    line_number,
-                    function_name,
-                    ["stack of calls"]
-                ),
-            ]
+        Returns
+        -------
+        frame of call
         """
         frame = inspect.currentframe().f_back.f_back
         for _ in range(LIMIT_STACK_INSPECTION):
