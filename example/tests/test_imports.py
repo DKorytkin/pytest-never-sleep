@@ -1,4 +1,5 @@
 import time
+
 import pytest
 from diff_imports.import_from_module import do_some_stuff
 

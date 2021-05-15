@@ -11,14 +11,15 @@ _real_time_sleep_ids = (id(_true_time_sleep), id(_true_time))
 TARGET_MODULE_NAME = "time"
 TARGET_METHOD_NAME = "sleep"
 LIMIT_STACK_INSPECTION = 5
-DEFAULT_IGNORE_LIST = [
+DEFAULT_IGNORE_LIST = (
+    TARGET_MODULE_NAME,
     "py",
     "pytest",
     "_pytest",
     "nose.plugins",
-    "threading",
-    "Queue",
-]
+    "datetime",
+    "_datetime",
+)
 
 
 class TimeSleepUsageError(RuntimeError):
@@ -66,6 +67,7 @@ class Cache(object):
             ),
         }
     """
+
     def __init__(self):
         self.data = {}
 
@@ -147,7 +149,7 @@ class NeverSleepPlugin(object):
         self.config = config
         self.root = str(config.rootdir)
         self.cache = Cache()
-        self.whitelist = tuple(self.get_whitelist() or DEFAULT_IGNORE_LIST)
+        self.whitelist = tuple(self.get_whitelist())
         self._allow_time_sleep = False
 
     @pytest.fixture
@@ -252,6 +254,17 @@ class NeverSleepPlugin(object):
         finally:
             self._allow_time_sleep = old_value
 
+    def should_use_true_sleep(self):
+        """
+        Returns
+        -------
+        bool
+        """
+        if self._allow_time_sleep:
+            return True
+        frame = self.get_current_frame()
+        return frame.f_globals.get("__name__", "").startswith(self.whitelist)
+
     def fake_sleep(self, seconds):
         """
         Own implementation of `time.sleep` which track where it was called and raises an error if
@@ -261,18 +274,17 @@ class NeverSleepPlugin(object):
         ----------
         seconds: int | float
         """
-        if not self._allow_time_sleep:
+        if not self.should_use_true_sleep():
             frame = self.get_current_frame()
             msg = self.config.hook.pytest_never_sleep_message_format(frame=frame)
             raise TimeSleepUsageError(msg)
         _true_time_sleep(seconds)
 
     def _sys_modules(self):
-        ignore = (TARGET_MODULE_NAME, "datetime", "_datetime")
         for mod_name, module in dict(sys.modules).items():
             if mod_name is None or module is None or mod_name == __name__:
                 continue
-            if mod_name.startswith(ignore) or mod_name.startswith(self.whitelist):
+            if mod_name.startswith(DEFAULT_IGNORE_LIST) or mod_name.startswith(self.whitelist):
                 continue
             yield module
 
