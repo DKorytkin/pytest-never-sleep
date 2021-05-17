@@ -268,8 +268,9 @@ class NeverSleepPlugin(object):
         with using_real_time_sleep(self.fake_sleep):
             yield
 
+    @staticmethod
     @pytest.fixture(autouse=True)
-    def never_sleep(self, request):
+    def never_sleep(request):
         """
         Parameters
         ----------
