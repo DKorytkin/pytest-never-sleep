@@ -28,6 +28,43 @@ class TimeSleepUsageError(RuntimeError):
     """
 
 
+@contextlib.contextmanager
+def using_real_time_sleep(fake_sleep):
+    """
+    Needs for temporary allow `time.sleep` using
+
+    Parameters
+    ----------
+    fake_sleep: FakeSleep
+    """
+    old_value = fake_sleep.allow_time_sleep
+    fake_sleep.allow_time_sleep = True
+    try:
+        yield
+    finally:
+        fake_sleep.allow_time_sleep = old_value
+
+
+def get_marker(request, name):
+    """
+    Needs to keep compatible between different pytest versions
+
+    Parameters
+    ----------
+    request: _pytest.fixtures.SubRequest
+    name: str
+
+    Returns
+    -------
+    Optional[_pytest.mark.structures.MarkInfo | _pytest.mark.structures.Mark]
+    """
+    try:
+        marker = request.node.get_marker(name)
+    except AttributeError:
+        marker = request.node.get_closest_marker(name)
+    return marker
+
+
 def get_target_attributes(module):
     """
     Parameters
@@ -124,6 +161,66 @@ class Cache(object):
         return None
 
 
+class FakeSleep(object):
+    """
+    Fake implementation of `time.sleep`
+    """
+    def __init__(self, whitelist, get_message):
+        """
+        Parameters
+        ----------
+        whitelist: tuple[str]
+        get_message: Callable
+            pytest_never_sleep_message_format hook
+        """
+        self.whitelist = whitelist
+        self.get_message = get_message
+        self.allow_time_sleep = False
+
+    @staticmethod
+    def get_current_frame():
+        """
+        Returns
+        -------
+        frame of call
+        """
+        frame = inspect.currentframe().f_back.f_back
+        for _ in range(LIMIT_STACK_INSPECTION):
+            if frame.f_globals.get("__name__") == __name__:
+                frame = frame.f_back
+                continue
+            return frame
+
+    def should_use_true_sleep(self):
+        """
+        Returns
+        -------
+        bool
+        """
+        if self.allow_time_sleep:
+            return True
+        frame = self.get_current_frame()
+        return frame.f_globals.get("__name__", "").startswith(self.whitelist)
+
+    def sleep(self, seconds):
+        """
+        Own implementation of `time.sleep` which track where it was called and raises an error if
+        this path not in the whitelist
+
+        Parameters
+        ----------
+        seconds: int | float
+        """
+        if not self.should_use_true_sleep():
+            frame = self.get_current_frame()
+            msg = self.get_message(frame=frame)
+            raise TimeSleepUsageError(msg)
+        _true_time_sleep(seconds)
+
+    def __call__(self, seconds):
+        self.sleep(seconds)
+
+
 class NeverSleepPlugin(object):
     """
     This plugin adds ability to find unexpected `time.sleep` in codebase
@@ -148,9 +245,12 @@ class NeverSleepPlugin(object):
     def __init__(self, config):
         self.config = config
         self.root = str(config.rootdir)
-        self.cache = Cache()
         self.whitelist = tuple(self.get_whitelist())
-        self._allow_time_sleep = False
+        self.fake_sleep = FakeSleep(
+            whitelist=self.whitelist,
+            get_message=self.config.hook.pytest_never_sleep_message_format,
+        )
+        self.cache = Cache()
 
     @pytest.fixture
     def disable_time_sleep(self):
@@ -164,7 +264,7 @@ class NeverSleepPlugin(object):
         """
         This fixture enable using `time.sleep` for particular tests
         """
-        with self.allow_time_sleep():
+        with using_real_time_sleep(self.fake_sleep):
             yield
 
     @pytest.fixture(autouse=True)
@@ -174,12 +274,7 @@ class NeverSleepPlugin(object):
         ----------
         request: _pytest.fixtures.SubRequest
         """
-        if self.get_marker(request, "allow_time_sleep"):
-            request.getfixturevalue("enable_time_sleep")
-        elif self.get_marker(request, "not_allow_time_sleep"):
-            request.getfixturevalue("disable_time_sleep")
-        elif self.config.getoption("--disable-sleep"):
-            request.getfixturevalue("disable_time_sleep")
+        return self._never_sleep(request)
 
     def pytest_sessionstart(self):
         """
@@ -213,7 +308,7 @@ class NeverSleepPlugin(object):
         msg = (
             "Method `{method}` uses `{target}`.\nIt can lead to degradation of test runtime, "
             "please check '{path}' line {number} "
-            "and use mock for that peace of code."
+            "and use `mock` for that peace of code."
         ).format(
             target=self.TARGET_NAME,
             method=method,
@@ -222,69 +317,13 @@ class NeverSleepPlugin(object):
         )
         return msg
 
-    @staticmethod
-    def get_marker(request, name):
-        """
-        Needs to keep compatible between different pytest versions
-
-        Parameters
-        ----------
-        request: _pytest.fixtures.SubRequest
-        name: str
-
-        Returns
-        -------
-        Optional[_pytest.mark.structures.MarkInfo | _pytest.mark.structures.Mark]
-        """
-        try:
-            marker = request.node.get_marker(name)
-        except AttributeError:
-            marker = request.node.get_closest_marker(name)
-        return marker
-
-    @contextlib.contextmanager
-    def allow_time_sleep(self):
-        """
-        Needs for temporary allow `time.sleep` using
-        """
-        old_value = self._allow_time_sleep
-        self._allow_time_sleep = True
-        try:
-            yield
-        finally:
-            self._allow_time_sleep = old_value
-
-    def should_use_true_sleep(self):
-        """
-        Returns
-        -------
-        bool
-        """
-        if self._allow_time_sleep:
-            return True
-        frame = self.get_current_frame()
-        return frame.f_globals.get("__name__", "").startswith(self.whitelist)
-
-    def fake_sleep(self, seconds):
-        """
-        Own implementation of `time.sleep` which track where it was called and raises an error if
-        this path not in the whitelist
-
-        Parameters
-        ----------
-        seconds: int | float
-        """
-        if not self.should_use_true_sleep():
-            frame = self.get_current_frame()
-            msg = self.config.hook.pytest_never_sleep_message_format(frame=frame)
-            raise TimeSleepUsageError(msg)
-        _true_time_sleep(seconds)
-
     def _sys_modules(self):
         for mod_name, module in dict(sys.modules).items():
             if mod_name is None or module is None or mod_name == __name__:
                 continue
-            if mod_name.startswith(DEFAULT_IGNORE_LIST) or mod_name.startswith(self.whitelist):
+            if mod_name.startswith(DEFAULT_IGNORE_LIST) or mod_name.startswith(
+                self.whitelist
+            ):
                 continue
             yield module
 
@@ -293,11 +332,15 @@ class NeverSleepPlugin(object):
             for attribute_name, attribute_value in get_target_attributes(module):
                 if id(attribute_value) in _real_time_sleep_ids:
                     continue
-                real = _true_time_sleep
-                if attribute_name == TARGET_MODULE_NAME:
-                    setattr(attribute_value, TARGET_METHOD_NAME, real)
-                    real = attribute_value
-                setattr(module, attribute_name, real)
+
+                current_instance = module  # from time import sleep
+                if attribute_name == TARGET_MODULE_NAME and getattr(
+                    attribute_value, TARGET_METHOD_NAME, None
+                ):
+                    current_instance = attribute_value  # import time
+
+                if isinstance(current_instance, FakeSleep):
+                    setattr(current_instance, TARGET_METHOD_NAME, _true_time_sleep)
 
     def _disable_time_sleep(self):
         for module in self._sys_modules():
@@ -311,6 +354,20 @@ class NeverSleepPlugin(object):
                     setattr(attribute_value, TARGET_METHOD_NAME, fake)
                     fake = attribute_value
                 setattr(module, attribute_name, fake)
+
+    @staticmethod
+    def _never_sleep(request):
+        """
+        Parameters
+        ----------
+        request: _pytest.fixtures.SubRequest
+        """
+        if get_marker(request, "allow_time_sleep"):
+            request.getfixturevalue("enable_time_sleep")
+        elif get_marker(request, "not_allow_time_sleep"):
+            request.getfixturevalue("disable_time_sleep")
+        elif request.config.getoption("--disable-sleep"):
+            request.getfixturevalue("disable_time_sleep")
 
     def get_whitelist(self):
         """
@@ -326,17 +383,3 @@ class NeverSleepPlugin(object):
             values.extend(other)
         values.extend(self.config.option.whitelist)
         return values
-
-    @staticmethod
-    def get_current_frame():
-        """
-        Returns
-        -------
-        frame of call
-        """
-        frame = inspect.currentframe().f_back.f_back
-        for _ in range(LIMIT_STACK_INSPECTION):
-            if frame.f_globals.get("__name__") == __name__:
-                frame = frame.f_back
-                continue
-            return frame

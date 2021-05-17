@@ -17,21 +17,27 @@ pytest --disable-sleep tests/acceptance/tests/test_imports.py
 As result, if some of the tests use `time.sleep` somewhere it will rise `TimeSleepUsageError`
 
 Like in this example:
+
 ```python
-=============================================== FAILURES ================================================
-______________________________________________ test_first _______________________________________________
+====================== FAILURES ======================
+_____________________ test_first _____________________
 
-    def test_first():
->       do_some_stuff()
+    @pytest.fixture
+    def do():
+        from diff_imports.import_from_function import do
 
+>       return do()
 
-tests/acceptance/tests/test_imports.py:5:
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-tests/acceptance/diff_imports/import_from_module.py:5: in do_some_stuff
-    time.sleep(1)
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+do         = <function do at 0x10748ec20>
 
-    def fake_sleep(self, seconds):
+example/tests/conftest.py:13:
+______________________________________________________
+example/diff_imports/import_from_function.py:5: in do
+    sleep(1)
+pytest_never_sleep/never_sleep.py:221: in __call__
+    self.sleep(seconds)
+______________________________________________________
+    def sleep(self, seconds):
         """
         Own implementation of `time.sleep` which track where it was called and raises an error if
         this path not in the whitelist
@@ -42,11 +48,11 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
         """
         if not self._allow_time_sleep:
             frame = self.get_current_frame()
-            msg = self.config.hook.pytest_never_sleep_message_format(frame=frame)
+            msg = self.get_message(frame=frame)
 >           raise TimeSleepUsageError(msg)
-E           pytest_never_sleep.never_sleep.TimeSleepUsageError: Method `do_some_stuff` uses `time.sleep`.
-E           It can lead to degradation of test runtime, please check 'tests/acceptance/diff_imports/import_from_module.py' line 4 and use mock for that peace of code.
-
+E           pytest_never_sleep.never_sleep.TimeSleepUsageError: Method `do` uses `time.sleep`.
+E           It can lead to degradation of test runtime, 
+E           check 'example/diff_imports/import_from_function.py' line 4 and use mock for that peace of code.
 ```
 
 ### Flags
