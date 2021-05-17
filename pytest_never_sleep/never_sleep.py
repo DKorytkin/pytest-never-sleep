@@ -165,6 +165,7 @@ class FakeSleep(object):
     """
     Fake implementation of `time.sleep`
     """
+
     def __init__(self, whitelist, get_message):
         """
         Parameters
