@@ -20,21 +20,12 @@ DEFAULT_IGNORE_LIST = (
     "datetime",
     "_datetime",
 )
-
-
-@pytest.fixture(autouse=True)
-def never_sleep(request):
-    """
-    Parameters
-    ----------
-    request: _pytest.fixtures.SubRequest
-    """
-    if get_marker(request, "allow_time_sleep"):
-        request.getfixturevalue("enable_time_sleep")
-    elif get_marker(request, "not_allow_time_sleep"):
-        request.getfixturevalue("disable_time_sleep")
-    elif request.config.getoption("--disable-sleep"):
-        request.getfixturevalue("disable_time_sleep")
+MARK_ALLOW_TIME_SLEEP = "enable_time_sleep"
+MARK_NOT_ALLOW_TIME_SLEEP = "disable_time_sleep"
+MARKERS = {
+    MARK_ALLOW_TIME_SLEEP: "Allow using `time.sleep` in test",
+    MARK_NOT_ALLOW_TIME_SLEEP: "Not allow using `time.sleep` in test",
+}
 
 
 class TimeSleepUsageError(RuntimeError):
@@ -251,12 +242,6 @@ class NeverSleepPlugin(object):
     """
 
     TARGET_NAME = "{}.{}".format(TARGET_MODULE_NAME, TARGET_METHOD_NAME)
-    MARK_ALLOW_TIME_SLEEP = "allow_time_sleep"
-    MARK_NOT_ALLOW_TIME_SLEEP = "not_allow_time_sleep"
-    MARKERS = {
-        MARK_ALLOW_TIME_SLEEP: "Allow using `time.sleep` in test",
-        MARK_NOT_ALLOW_TIME_SLEEP: "Not allow using `time.sleep` in test",
-    }
 
     def __init__(self, config):
         self.config = config
@@ -282,6 +267,21 @@ class NeverSleepPlugin(object):
         """
         with using_real_time_sleep(self.fake_sleep):
             yield
+
+    @pytest.fixture(autouse=True)
+    def never_sleep(self, request):
+        """
+        Parameters
+        ----------
+        request: _pytest.fixtures.SubRequest
+        """
+        if request.config.getoption("--disable-sleep"):
+            request.getfixturevalue("disable_time_sleep")
+        if get_marker(request, MARK_NOT_ALLOW_TIME_SLEEP):
+            request.getfixturevalue("disable_time_sleep")
+
+        if get_marker(request, MARK_ALLOW_TIME_SLEEP):
+            request.getfixturevalue("enable_time_sleep")
 
     def pytest_sessionstart(self):
         """

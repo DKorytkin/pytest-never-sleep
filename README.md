@@ -14,7 +14,7 @@ Run tests with flag `--disable-sleep`
 ```shell
 pytest --disable-sleep tests/acceptance/tests/test_imports.py
 ```
-As result, if some of the tests use `time.sleep` somewhere it will rise `TimeSleepUsageError`
+As result, if some tests use `time.sleep` somewhere it will rise `TimeSleepUsageError`
 
 Like in this example:
 
@@ -91,7 +91,7 @@ def test_second():
 
 ### Markers
 
-#### - `allow_time_sleep`
+#### - `enable_time_sleep`
 
 This marker has the same behavior with `enable_time_sleep` fixture
 
@@ -104,7 +104,7 @@ def test_one():
     ...
 ```
 
-#### - `not_allow_time_sleep`
+#### - `disable_time_sleep`
 
 This marker has the same behavior with `disable_time_sleep` fixture
 

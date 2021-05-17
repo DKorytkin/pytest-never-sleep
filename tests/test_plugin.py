@@ -143,7 +143,7 @@ class TestAcceptance(object):
 
             def test_a(): pass
             
-            @pytest.mark.allow_time_sleep
+            @pytest.mark.enable_time_sleep
             def test_b(): time.sleep(0.01)
             
             def test_c(): pass
@@ -160,7 +160,7 @@ class TestAcceptance(object):
 
             def test_a(): pass
             
-            @pytest.mark.not_allow_time_sleep
+            @pytest.mark.disable_time_sleep
             def test_b(): time.sleep(0.01)
             
             def test_c(): pass

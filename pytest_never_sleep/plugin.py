@@ -1,10 +1,10 @@
 from pytest_never_sleep import hooks
-from pytest_never_sleep.never_sleep import NeverSleepPlugin
+from pytest_never_sleep.never_sleep import NeverSleepPlugin, MARKERS
 
 
 def pytest_configure(config):
     """
-    Register plugin only if `--disable-sleep` passed to pytest CLI
+    Register plugin
 
     Parameters
     ----------
@@ -12,8 +12,8 @@ def pytest_configure(config):
     """
     reporter = NeverSleepPlugin(config)
     config.pluginmanager.register(reporter, name="pytest_never_sleep")
-    for marker, message in NeverSleepPlugin.MARKERS.items():
-        config.addinivalue_line("markers", "{}:{}".format(marker, message))
+    for marker, message in MARKERS.items():
+        config.addinivalue_line("markers", "{}: {}".format(marker, message))
 
 
 def pytest_addhooks(pluginmanager):
