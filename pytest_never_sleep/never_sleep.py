@@ -22,6 +22,21 @@ DEFAULT_IGNORE_LIST = (
 )
 
 
+@pytest.fixture(autouse=True)
+def never_sleep(request):
+    """
+    Parameters
+    ----------
+    request: _pytest.fixtures.SubRequest
+    """
+    if get_marker(request, "allow_time_sleep"):
+        request.getfixturevalue("enable_time_sleep")
+    elif get_marker(request, "not_allow_time_sleep"):
+        request.getfixturevalue("disable_time_sleep")
+    elif request.config.getoption("--disable-sleep"):
+        request.getfixturevalue("disable_time_sleep")
+
+
 class TimeSleepUsageError(RuntimeError):
     """
     The error which raises when `time.sleep` unexpectedly uses
@@ -268,15 +283,6 @@ class NeverSleepPlugin(object):
         with using_real_time_sleep(self.fake_sleep):
             yield
 
-    @pytest.fixture(autouse=True)
-    def never_sleep(self, request):
-        """
-        Parameters
-        ----------
-        request: _pytest.fixtures.SubRequest
-        """
-        return self._never_sleep(request)
-
     def pytest_sessionstart(self):
         """
         Disabled `time.sleep` on whole pytest session only in case when `--disable-sleep` was passed
@@ -355,20 +361,6 @@ class NeverSleepPlugin(object):
                     setattr(attribute_value, TARGET_METHOD_NAME, fake)
                     fake = attribute_value
                 setattr(module, attribute_name, fake)
-
-    @staticmethod
-    def _never_sleep(request):
-        """
-        Parameters
-        ----------
-        request: _pytest.fixtures.SubRequest
-        """
-        if get_marker(request, "allow_time_sleep"):
-            request.getfixturevalue("enable_time_sleep")
-        elif get_marker(request, "not_allow_time_sleep"):
-            request.getfixturevalue("disable_time_sleep")
-        elif request.config.getoption("--disable-sleep"):
-            request.getfixturevalue("disable_time_sleep")
 
     def get_whitelist(self):
         """
