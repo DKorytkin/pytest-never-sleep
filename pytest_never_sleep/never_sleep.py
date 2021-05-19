@@ -3,16 +3,17 @@ import inspect
 import sys
 import time
 
-import pytest
-
 _true_time = time
 _true_time_sleep = time.sleep
-_real_time_sleep_ids = (id(_true_time_sleep), id(_true_time))
+_real_time_sleep_ids = (id(_true_time), id(_true_time_sleep))
+
+
 TARGET_MODULE_NAME = "time"
 TARGET_METHOD_NAME = "sleep"
 LIMIT_STACK_INSPECTION = 5
 DEFAULT_IGNORE_LIST = (
     TARGET_MODULE_NAME,
+    "pytest_never_sleep",
     "py",
     "pytest",
     "_pytest",
@@ -20,12 +21,6 @@ DEFAULT_IGNORE_LIST = (
     "datetime",
     "_datetime",
 )
-MARK_ALLOW_TIME_SLEEP = "enable_time_sleep"
-MARK_NOT_ALLOW_TIME_SLEEP = "disable_time_sleep"
-MARKERS = {
-    MARK_ALLOW_TIME_SLEEP: "Allow using `time.sleep` in test",
-    MARK_NOT_ALLOW_TIME_SLEEP: "Not allow using `time.sleep` in test",
-}
 
 
 class TimeSleepUsageError(RuntimeError):
@@ -45,6 +40,23 @@ def using_real_time_sleep(fake_sleep):
     """
     old_value = fake_sleep.allow_time_sleep
     fake_sleep.allow_time_sleep = True
+    try:
+        yield
+    finally:
+        fake_sleep.allow_time_sleep = old_value
+
+
+@contextlib.contextmanager
+def using_fake_time_sleep(fake_sleep):
+    """
+    Needs for temporary not allow `time.sleep` using
+
+    Parameters
+    ----------
+    fake_sleep: FakeSleep
+    """
+    old_value = fake_sleep.allow_time_sleep
+    fake_sleep.allow_time_sleep = False
     try:
         yield
     finally:
@@ -90,6 +102,24 @@ def get_target_attributes(module):
         except (ImportError, AttributeError, TypeError):
             continue
         yield attribute_name, attribute_value
+
+
+def get_target_sys_modules(whitelist):
+    """
+    Parameters
+    ----------
+    whitelist: tuple[str]
+
+    Returns
+    -------
+    generator
+    """
+    for mod_name, module in dict(sys.modules).items():
+        if mod_name is None or module is None or mod_name == __name__:
+            continue
+        if mod_name.startswith(DEFAULT_IGNORE_LIST) or mod_name.startswith(whitelist):
+            continue
+        yield module
 
 
 class Cache(object):
@@ -172,17 +202,19 @@ class FakeSleep(object):
     Fake implementation of `time.sleep`
     """
 
-    def __init__(self, whitelist, get_message):
+    def __init__(self, whitelist=None, get_message=None, allow_time_sleep=None):
         """
         Parameters
         ----------
         whitelist: tuple[str]
         get_message: Callable
             pytest_never_sleep_message_format hook
+        allow_time_sleep: bool
         """
         self.whitelist = whitelist
         self.get_message = get_message
-        self.allow_time_sleep = False
+        self.allow_time_sleep = allow_time_sleep
+        self.cache = Cache()
 
     @staticmethod
     def get_current_frame():
@@ -224,119 +256,8 @@ class FakeSleep(object):
             raise TimeSleepUsageError(msg)
         _true_time_sleep(seconds)
 
-    def __call__(self, seconds):
-        self.sleep(seconds)
-
-
-class NeverSleepPlugin(object):
-    """
-    This plugin adds ability to find unexpected `time.sleep` in codebase
-    just pass `--disable-sleep` to pytest CLI
-    It will raise `TimeSleepUsageError` every time when faces with `time.sleep` which absent
-    in whitelist
-
-    The whitelist could be overwritten by hook `pytest_never_sleep_whitelist`
-    Default error message also can be overwritten via hook `pytest_never_sleep_message_format`
-
-    The fixture `enable_time_sleep` adds ability to allow `time.sleep` in particular tests
-    """
-
-    TARGET_NAME = "{}.{}".format(TARGET_MODULE_NAME, TARGET_METHOD_NAME)
-
-    def __init__(self, config):
-        self.config = config
-        self.root = str(config.rootdir)
-        self.whitelist = tuple(self.get_whitelist())
-        self.fake_sleep = FakeSleep(
-            whitelist=self.whitelist,
-            get_message=self.config.hook.pytest_never_sleep_message_format,
-        )
-        self.cache = Cache()
-
-    @pytest.fixture
-    def disable_time_sleep(self):
-        """
-        This fixture disabled using `time.sleep` for particular tests
-        """
-        self._disable_time_sleep()
-
-    @pytest.fixture
-    def enable_time_sleep(self):
-        """
-        This fixture enable using `time.sleep` for particular tests
-        """
-        with using_real_time_sleep(self.fake_sleep):
-            yield
-
-    @staticmethod
-    @pytest.fixture(autouse=True)
-    def never_sleep(request):
-        """
-        Parameters
-        ----------
-        request: _pytest.fixtures.SubRequest
-        """
-        if request.config.getoption("--disable-sleep"):
-            request.getfixturevalue("disable_time_sleep")
-        if get_marker(request, MARK_NOT_ALLOW_TIME_SLEEP):
-            request.getfixturevalue("disable_time_sleep")
-
-        if get_marker(request, MARK_ALLOW_TIME_SLEEP):
-            request.getfixturevalue("enable_time_sleep")
-
-    def pytest_sessionstart(self):
-        """
-        Disabled `time.sleep` on whole pytest session only in case when `--disable-sleep` was passed
-        """
-        if self.config.getoption("--disable-sleep"):
-            self._disable_time_sleep()
-
-    def pytest_sessionfinish(self):
-        """
-        After all tests return back `time.sleep`
-        """
-        self._enable_time_sleep()
-
-    @pytest.hookimpl(trylast=True)
-    def pytest_never_sleep_message_format(self, frame):
-        """
-        Parameters
-        ----------
-        frame: frame
-
-        Returns
-        -------
-        str
-        """
-        method = frame.f_code.co_name
-        line_number = frame.f_code.co_firstlineno
-        path = frame.f_code.co_filename
-        if self.root in path:
-            path = path.replace(self.root, "").strip("/")
-        msg = (
-            "Method `{method}` uses `{target}`.\nIt can lead to degradation of test runtime, "
-            "please check '{path}' line {number} "
-            "and use `mock` for that peace of code."
-        ).format(
-            target=self.TARGET_NAME,
-            method=method,
-            path=path,
-            number=line_number,
-        )
-        return msg
-
-    def _sys_modules(self):
-        for mod_name, module in dict(sys.modules).items():
-            if mod_name is None or module is None or mod_name == __name__:
-                continue
-            if mod_name.startswith(DEFAULT_IGNORE_LIST) or mod_name.startswith(
-                self.whitelist
-            ):
-                continue
-            yield module
-
-    def _enable_time_sleep(self):
-        for module in self._sys_modules():
+    def unpatch_time_sleep(self):
+        for module in get_target_sys_modules(self.whitelist):
             for attribute_name, attribute_value in get_target_attributes(module):
                 if id(attribute_value) in _real_time_sleep_ids:
                     continue
@@ -350,30 +271,18 @@ class NeverSleepPlugin(object):
                 if isinstance(current_instance, FakeSleep):
                     setattr(current_instance, TARGET_METHOD_NAME, _true_time_sleep)
 
-    def _disable_time_sleep(self):
-        for module in self._sys_modules():
+    def patch_time_sleep(self):
+        for module in get_target_sys_modules(self.whitelist):
             if self.cache.get(module):
                 continue
 
             module_time_sleep_attrs = self.cache.add(module)
             for attribute_name, attribute_value in module_time_sleep_attrs:
-                fake = self.fake_sleep
+                fake = self
                 if attribute_name == TARGET_MODULE_NAME:
                     setattr(attribute_value, TARGET_METHOD_NAME, fake)
                     fake = attribute_value
                 setattr(module, attribute_name, fake)
 
-    def get_whitelist(self):
-        """
-        Combine all whitelists which could be passed via hook and CLI
-
-        Returns
-        -------
-        List[str]
-        """
-        values = []
-        other = self.config.hook.pytest_never_sleep_whitelist()
-        if other:
-            values.extend(other)
-        values.extend(self.config.option.whitelist)
-        return values
+    def __call__(self, seconds):
+        self.sleep(seconds)
