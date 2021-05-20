@@ -2,8 +2,7 @@ import pytest
 
 from pytest_never_sleep import hooks
 from pytest_never_sleep.never_sleep import (
-    TARGET_METHOD_NAME,
-    TARGET_MODULE_NAME,
+    TARGET_NAME,
     FakeSleep,
     get_marker,
     using_fake_time_sleep,
@@ -28,8 +27,6 @@ def pytest_configure(config):
     ----------
     config: _pytest.config.Config
     """
-    reporter = NeverSleepPlugin(config)
-    config.pluginmanager.register(reporter, name="pytest_never_sleep")
     for marker, message in MARKERS.items():
         config.addinivalue_line("markers", "{}: {}".format(marker, message))
 
@@ -67,7 +64,7 @@ def pytest_addoption(parser):
     )
 
 
-@pytest.fixture
+@pytest.fixture(name=MARK_NOT_ALLOW_TIME_SLEEP)
 def disable_time_sleep():
     """
     This fixture disabled using `time.sleep` for particular tests
@@ -77,7 +74,7 @@ def disable_time_sleep():
         yield
 
 
-@pytest.fixture
+@pytest.fixture(name=MARK_ALLOW_TIME_SLEEP)
 def enable_time_sleep():
     """
     This fixture enable using `time.sleep` for particular tests
@@ -101,84 +98,57 @@ def never_sleep(request):
         request.getfixturevalue("disable_time_sleep")
 
 
-class NeverSleepPlugin(object):
+def pytest_sessionstart(session):
     """
-    This plugin adds ability to find unexpected `time.sleep` in codebase
-    just pass `--disable-sleep` to pytest CLI
-    It will raise `TimeSleepUsageError` every time when faces with `time.sleep` which absent
-    in whitelist
-
-    The whitelist could be overwritten by hook `pytest_never_sleep_whitelist`
-    Default error message also can be overwritten via hook `pytest_never_sleep_message_format`
-
-    The fixture `enable_time_sleep` adds ability to allow `time.sleep` in particular tests
+    Disabled `time.sleep` on whole pytest session only in case when `--disable-sleep` was passed
     """
+    whitelist = []
+    other = session.config.hook.pytest_never_sleep_whitelist()
+    if other:
+        whitelist.extend(other)
+    whitelist.extend(session.config.option.whitelist)
 
-    TARGET_NAME = "{}.{}".format(TARGET_MODULE_NAME, TARGET_METHOD_NAME)
+    # configuration for FakeSleep
+    _fake_time_sleep.pytest_config = session.config
+    _fake_time_sleep.is_allow_time_sleep_by_default = not bool(
+        session.config.getoption("--disable-sleep")
+    )
+    _fake_time_sleep.whitelist = tuple(whitelist)
+    _fake_time_sleep.get_message = session.config.hook.pytest_never_sleep_message_format
+    _fake_time_sleep.patch_time_sleep()
 
-    def __init__(self, config):
-        self.config = config
-        self.root = str(config.rootdir)
-        self.whitelist = tuple(self.get_whitelist())
 
-    def pytest_sessionstart(self):
-        """
-        Disabled `time.sleep` on whole pytest session only in case when `--disable-sleep` was passed
-        """
-        _fake_time_sleep.allow_time_sleep = not bool(
-            self.config.getoption("--disable-sleep")
-        )
-        _fake_time_sleep.whitelist = self.whitelist
-        _fake_time_sleep.get_message = (
-            self.config.hook.pytest_never_sleep_message_format
-        )
-        _fake_time_sleep.patch_time_sleep()
+def pytest_sessionfinish():
+    """
+    After all tests return back `time.sleep`
+    """
+    _fake_time_sleep.unpatch_time_sleep()
 
-    def pytest_sessionfinish(self):
-        """
-        After all tests return back `time.sleep`
-        """
-        _fake_time_sleep.unpatch_time_sleep()
 
-    @pytest.hookimpl(trylast=True)
-    def pytest_never_sleep_message_format(self, frame):
-        """
-        Parameters
-        ----------
-        frame: frame
+@pytest.hookimpl(trylast=True)
+def pytest_never_sleep_message_format(config, frame):
+    """
+    Parameters
+    ----------
+    config: _pytest.config.Config
+    frame: frame
 
-        Returns
-        -------
-        str
-        """
-        method = frame.f_code.co_name
-        line_number = frame.f_code.co_firstlineno
-        path = frame.f_code.co_filename
-        if self.root in path:
-            path = path.replace(self.root, "").strip("/")
-        msg = (
-            "Method `{method}` uses `{target}`.\nIt can lead to degradation of test runtime, "
-            "please check '{path}' line {number} "
-            "and use `mock` for that peace of code."
-        ).format(
-            target=self.TARGET_NAME,
-            method=method,
-            path=path,
-            number=line_number,
-        )
-        return msg
-
-    def get_whitelist(self):
-        """
-        Combine all whitelists which could be passed via hook and CLI
-
-        Returns
-        -------
-        List[str]
-        """
-        values = []
-        other = self.config.hook.pytest_never_sleep_whitelist()
-        if other:
-            values.extend(other)
-        values.extend(self.config.option.whitelist)
-        return values
+    Returns
+    -------
+    str
+    """
+    root_dir = str(config.rootdir)
+    path = frame.f_code.co_filename
+    if root_dir in path:
+        path = path.replace(root_dir, "").strip("/")
+    msg = (
+        "Method `{method}` uses `{target}`.\nIt can lead to degradation of test runtime, "
+        "please check '{path}' line {number} "
+        "and use `mock` for that peace of code."
+    ).format(
+        target=TARGET_NAME,
+        method=frame.f_code.co_name,
+        path=path,
+        number=frame.f_code.co_firstlineno,
+    )
+    return msg

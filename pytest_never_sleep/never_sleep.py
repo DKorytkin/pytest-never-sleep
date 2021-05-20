@@ -10,6 +10,7 @@ _real_time_sleep_ids = (id(_true_time), id(_true_time_sleep))
 
 TARGET_MODULE_NAME = "time"
 TARGET_METHOD_NAME = "sleep"
+TARGET_NAME = "{}.{}".format(TARGET_MODULE_NAME, TARGET_METHOD_NAME)
 LIMIT_STACK_INSPECTION = 5
 DEFAULT_IGNORE_LIST = (
     TARGET_MODULE_NAME,
@@ -38,12 +39,12 @@ def using_real_time_sleep(fake_sleep):
     ----------
     fake_sleep: FakeSleep
     """
-    old_value = fake_sleep.allow_time_sleep
-    fake_sleep.allow_time_sleep = True
+    old_value = fake_sleep.is_allow_time_sleep_by_default
+    fake_sleep.is_allow_time_sleep_by_default = True
     try:
         yield
     finally:
-        fake_sleep.allow_time_sleep = old_value
+        fake_sleep.is_allow_time_sleep_by_default = old_value
 
 
 @contextlib.contextmanager
@@ -55,12 +56,12 @@ def using_fake_time_sleep(fake_sleep):
     ----------
     fake_sleep: FakeSleep
     """
-    old_value = fake_sleep.allow_time_sleep
-    fake_sleep.allow_time_sleep = False
+    old_value = fake_sleep.is_allow_time_sleep_by_default
+    fake_sleep.is_allow_time_sleep_by_default = False
     try:
         yield
     finally:
-        fake_sleep.allow_time_sleep = old_value
+        fake_sleep.is_allow_time_sleep_by_default = old_value
 
 
 def get_marker(request, name):
@@ -144,6 +145,9 @@ class Cache(object):
     def __init__(self):
         self.data = {}
 
+    def __contains__(self, module):
+        return self.get(module)
+
     @staticmethod
     def _get_module_attributes_hash(module):
         try:
@@ -202,7 +206,13 @@ class FakeSleep(object):
     Fake implementation of `time.sleep`
     """
 
-    def __init__(self, whitelist=None, get_message=None, allow_time_sleep=None):
+    def __init__(
+        self,
+        whitelist=None,
+        get_message=None,
+        allow_time_sleep=None,
+        pytest_config=None,
+    ):
         """
         Parameters
         ----------
@@ -213,7 +223,8 @@ class FakeSleep(object):
         """
         self.whitelist = whitelist
         self.get_message = get_message
-        self.allow_time_sleep = allow_time_sleep
+        self.is_allow_time_sleep_by_default = allow_time_sleep
+        self.pytest_config = pytest_config
         self.cache = Cache()
 
     @staticmethod
@@ -236,7 +247,7 @@ class FakeSleep(object):
         -------
         bool
         """
-        if self.allow_time_sleep:
+        if self.is_allow_time_sleep_by_default:
             return True
         frame = self.get_current_frame()
         return frame.f_globals.get("__name__", "").startswith(self.whitelist)
@@ -252,11 +263,15 @@ class FakeSleep(object):
         """
         if not self.should_use_true_sleep():
             frame = self.get_current_frame()
-            msg = self.get_message(frame=frame)
+            msg = self.get_message(config=self.pytest_config, frame=frame)
             raise TimeSleepUsageError(msg)
         _true_time_sleep(seconds)
 
     def unpatch_time_sleep(self):
+        """
+        Checks all sys.modules if it has imported `time.sleep` and it already patched
+        Will back origin `time.sleep`
+        """
         for module in get_target_sys_modules(self.whitelist):
             for attribute_name, attribute_value in get_target_attributes(module):
                 if id(attribute_value) in _real_time_sleep_ids:
@@ -272,8 +287,24 @@ class FakeSleep(object):
                     setattr(current_instance, TARGET_METHOD_NAME, _true_time_sleep)
 
     def patch_time_sleep(self):
+        """
+        Checks all sys.modules if it has imported `time.sleep`
+        Will apply patch for `time.sleep`
+
+        For example:
+        my_custome_module.py
+        >>> import time
+        >>> def foo():
+        >>>     time.sleep(1)
+
+        >>> from time import sleep
+        >>> def foo():
+        >>>     sleep(1)
+
+        In all cases `sleep` will equall <FakeSleep>
+        """
         for module in get_target_sys_modules(self.whitelist):
-            if self.cache.get(module):
+            if module in self.cache:
                 continue
 
             module_time_sleep_attrs = self.cache.add(module)

@@ -21,7 +21,7 @@ def pytest_never_sleep_whitelist():
 
 
 @pytest.hookspec(firstresult=True)
-def pytest_never_sleep_message_format(frame):
+def pytest_never_sleep_message_format(config, frame):
     """
     In this hook you can overwrite default message format on your own
 
@@ -39,6 +39,7 @@ def pytest_never_sleep_message_format(frame):
 
     Parameters
     ----------
+    config: _pytest.config.Config
     frame: frame
 
     Returns
@@ -46,6 +47,6 @@ def pytest_never_sleep_message_format(frame):
     str
 
     Usage in conftest:
-    >>> def pytest_never_sleep_message_format(frame):
+    >>> def pytest_never_sleep_message_format(config, frame):
     >>>     return "{}:{}".format(frame.f_code.co_filename, frame.f_code.co_firstlineno)
     """

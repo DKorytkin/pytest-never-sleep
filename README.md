@@ -124,7 +124,7 @@ def test_second():
 In this hook, you can overwrite the default message format on your own
 
 ```python
-def pytest_never_sleep_message_format(frame):
+def pytest_never_sleep_message_format(config, frame):
     return "{}:{}".format(frame.f_code.co_filename, frame.f_code.co_firstlineno)
 ```
 
